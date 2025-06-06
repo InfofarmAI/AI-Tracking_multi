@@ -1,0 +1,28 @@
+<application>
+    <!-- DB情報 -->
+    <DB>
+        <HOST>192.168.1.101</HOST>
+        <PORT>3306</PORT>
+        <NAME>cclog_db</NAME>
+        <USER>root</USER>
+        <PASSWD>CCrootpass</PASSWD>
+    </DB>
+    <!-- SK-VMS情報 -->
+    <SK-VMS>
+        <HOST>192.168.1.101</HOST>
+        <PORT>7001</PORT>
+        <DATE>2025-01-28</DATE>
+        <!-- <START_TIME>13:48:50</START_TIME>
+        <END_TIME>13:49:50</END_TIME> -->
+        <START_TIME>16:29:00</START_TIME>
+        <END_TIME>16:30:30</END_TIME>
+        <DURATION>30</DURATION>
+        <USER>admin</USER>
+        <PASSWD>info1881</PASSWD>
+    </SK-VMS>
+    <!-- ログファイル情報 -->
+    <LOG>
+        <FILE>app.log</FILE>
+        <LEVEL>INFO</LEVEL>
+    </LOG>
+</application>

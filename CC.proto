@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package cc_service;
+option csharp_namespace = "Iroato.IroatoGRPCLib";
+
+service CcService {
+    rpc OnReadImg (ImgRequest) returns (ImgResponse);
+    rpc OnAnalyzedImg (CcRequest) returns (CcResponse);
+}
+
+message ImgRequest {
+    bytes img = 1;
+    CameraSettings cameraSettings = 2;
+    string msg = 3;
+}
+
+message CameraSettings {
+    int64 cameraId = 1;
+    string CameraName = 2;
+    string IPAddress = 3;
+    string cameraCode = 4;
+}
+
+message ImgResponse {
+    string msg = 1;
+}
+
+message CcRequest {
+    ccDetailList ccDetailList = 1;
+    string datetime = 2;
+    int64 cameraId = 3;
+    string msg = 4;
+}
+
+message ccDetailList{
+    repeated ccDetail ccDetail = 1;
+}
+
+message ccDetail{
+    int64 ccId = 1;
+    Points points = 2;
+    int32 indexPointBase = 3;
+    objOtherInfo objOtherInfo = 4;
+}
+
+//座標
+message Points{
+    Point topLeft = 1;
+    Point topRight = 2;
+    Point bottomRight = 3;
+    Point bottomLeft = 4;
+}
+
+message Point {
+    int32 x = 1;
+    int32 y = 2;
+}
+
+message objOtherInfo{
+
+}
+
+message CcResponse{
+    string msg = 1;
+}

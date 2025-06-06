@@ -1,0 +1,305 @@
+import io
+import cv2
+import json
+import argparse
+# import globals
+import subprocess
+import numpy as np
+from conf import FPS
+from PIL import Image
+# from util import make_dir
+from flask import Flask, request, jsonify
+from Detector.detector import ObjectDetector
+from Tracker.tracker import MultiObjectTracker
+
+detector, tracker = None, None
+track_id_dict     = {}
+cc_alignment_dict = {}
+app = Flask(__name__)
+
+def get_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--device", type=int, default=0)
+    parser.add_argument("--movie", type=str, default=None)
+
+    parser.add_argument(
+        '--detector',
+        choices=[
+            'yolox',
+            'yolov8_seg',
+            'efficientdet',
+            'ssd',
+            'centernet',
+            'nanodet',
+            'mediapipe_face',
+            'mediapipe_hand',
+            'light_person_detector',
+        ],
+        default='yolov8_seg',
+        # default='yolox',
+    )
+    parser.add_argument(
+        '--tracker',
+        choices=[
+            'motpy',
+            'bytetrack',
+            'mc_bytetrack',
+            'norfair',
+            'mc_norfair',
+            'person_reid',
+            'youtureid',
+            'demo_youtureid',
+            'sface',
+            'strongsort',
+        ],
+        default='youtureid',
+    )
+
+    parser.add_argument("--target_id", type=str, default="1")
+
+    parser.add_argument('--use_gpu', action='store_true',default="use_gpu")
+
+    args = parser.parse_args()
+
+    return args
+
+def load_model(args):
+    cap_device = args.device
+    if args.movie is not None:
+        cap_device = args.movie
+
+    detector_name = args.detector
+    tracker_name = args.tracker
+
+    target_id = args.target_id
+    if target_id is not None:
+        target_id = [int(i) for i in target_id.split(',')]
+
+    use_gpu = args.use_gpu
+
+    # VideoCapture初期化
+    # cap = cv2.VideoCapture(cap_device)
+    # cap_fps = cap.get(cv2.CAP_PROP_FPS)
+    cap_fps = FPS
+
+    # Object Detection
+    detector = ObjectDetector(
+        detector_name,
+        target_id,
+        use_gpu=use_gpu,
+    )
+    detector.print_info()
+
+    # Multi Object Tracking
+    tracker = MultiObjectTracker(
+        tracker_name,
+        cap_fps,
+        use_gpu=use_gpu,
+    )
+    tracker.print_info()
+    
+    return detector, tracker
+
+def sub_terminal():
+    # 新しいウィンドウを非表示にするための設定
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    subprocess.Popen(["python", "main.py"], startupinfo=startupinfo)
+
+    #別ターミナルで起動させる
+    # subprocess.Popen("start python main.py", shell=True, startupinfo=startupinfo)
+
+def cc_alignment(masks, track_ids, track_id_dict, cc_alignment_dict, CcList):
+    cc_details = CcList['ccDetail']
+    # 現在時刻の取得
+    # datetime_value = camera.datetime
+    # print(datetime_value)
+    for cc_detail in cc_details:
+        cc_id = cc_detail['ccId']
+        # 左上
+        top_left = cc_detail['points']['topLeft']
+        top_leftX = top_left['x']
+        top_leftY = top_left['y']
+        # 右上
+        top_right = cc_detail['points']['topRight']
+        top_rightX = top_right['x']
+        top_rightY = top_right['y']
+        # 左下
+        bottom_Left = cc_detail['points']['bottomLeft']
+        bottom_LeftX = bottom_Left['x']
+        bottom_LeftY = bottom_Left['y']
+        # 右下
+        bottom_Right = cc_detail['points']['bottomRight']
+        bottom_RightX = bottom_Right['x']
+        bottom_RightY = bottom_Right['y']
+
+        # カメレオンコードの描画
+        pt1 = (top_leftX, top_leftY)
+        pt2 = (bottom_RightX, bottom_RightY)
+        thickness = 4  
+        # カメレオンコードの座標
+        CcPoints = [pt1, pt2]
+        # 中心座標を計算
+        CcPointX = sum([pt[0] for pt in CcPoints]) / len(CcPoints)
+        CcPointY = sum([pt[1] for pt in CcPoints]) / len(CcPoints)
+        
+        for id, mask, in zip(track_ids, masks):
+            # x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            TID = int(track_id_dict[id])
+            
+            # バウンディングボックスの領域内でカメレオンコードが検知されたら緑色から赤色に変更する
+            is_in_mask = cv2.pointPolygonTest(mask, [CcPointX, CcPointY], False) > 0
+            if is_in_mask:
+                # thickness = 4
+                # CcColor = (0, 0, 255)  # 赤色
+                points = np.array([[top_leftX, top_leftY], [top_rightX, top_rightY], [bottom_RightX, bottom_RightY], [bottom_LeftX, bottom_LeftY]], np.int32)
+                # 頂点の座標配列を、(1 x N x 2) の形状に変形
+                points = points.reshape((-1, 1, 2))
+                # 閉じた図形（最初と最後の点を結ぶ）かどうか
+                isClosed = True  
+                # 多角形を描画
+                # cv2.polylines(image, [points], isClosed, CcColor, thickness)
+
+                #Xの辺長さ=右上-左上
+                # X1 = x2 - x1
+                # RightMiddleY = y1 + X1
+                #胸像の中心座標（首）の取得
+                # center_x = ((x1 + x2)//2)
+                # center_y = ((y1 + RightMiddleY)//2)
+
+                #どの人物と紐づいているか線を引く
+                # new_point = np.array([[center_x, center_y],[CcPointX,CcPointY]], np.int32)
+                # points_list = np.vstack((points_list, new_point))
+                # if len(points_list) > 1:
+                #     isClosed = False
+                #     cv2.polylines(image, [points_list], isClosed, (0, 0, 255), thickness)
+
+                # 2023/10/23 torisato 
+                #カメレオンコードとTIDの紐づけを辞書型で保持
+                # if cc_id not in cc_alignment_dict.values():
+                    #cc_alignment_dictに無い、新しいTIDが検知されたらcc_idをValueにする
+                # if TID not in cc_alignment_dict.keys(): #2023/01/12 torisato 展示会用にコメントアウト
+                cc_alignment_dict[TID] = cc_id
+                    # print(cc_alignment_dict)
+
+    return cc_alignment_dict
+
+@app.route('/analyze', methods=['POST'])
+def analyze():
+    global track_id_dict
+    global cc_alignment_dict
+    
+    def toMatLike(byte_img):
+        num_byteio = io.BytesIO(byte_img)
+        with Image.open(num_byteio) as img:
+            ndArray_img = np.asarray(img)
+        ndArray_img = cv2.cvtColor(ndArray_img, cv2.COLOR_BGR2RGB)
+        # cv2.imwrite('./grpc.jpeg', ndArray_img)
+        return ndArray_img
+    
+    # print(request.form)
+    frame_bytes  = request.files['frame'].read()
+    frame = toMatLike(frame_bytes) # バイト配列(画像)をモデルの入力形式(MatLike)に変換
+    # print(frame)
+
+    #過去のフレームを取得 2023/11/14 torisato
+    previous_frame_bboxes = request.form.get('camera.previous_frame_bboxes')
+    if previous_frame_bboxes is not None:
+        previous_frame_bboxes = json.loads(previous_frame_bboxes)
+    else:
+        previous_frame_bboxes = []
+
+    # Object Detection
+    d_bboxes, d_scores, d_class_ids = detector(frame)
+    # Multi Object Tracking
+    # track_ids, t_bboxes, t_scores, t_class_ids = tracker(
+    #     frame,
+    #     d_bboxes,
+    #     d_scores,
+    #     d_class_ids,
+    # )
+    # print(f'd_bboxes: {d_bboxes}, type: {type(d_bboxes)}')
+    # print(f'd_scores: {d_scores}, type: {type(d_scores)}')
+    # print(f'd_class_ids: {d_class_ids}, type: {type(d_class_ids)}')
+    # d_bboxes: [], type: <class 'numpy.ndarray'>
+    # d_scores: [], type: <class 'numpy.ndarray'>
+    # d_class_ids: [], type: <class 'numpy.ndarray'>
+    
+    #2023/11/14 torisato
+    track_ids, t_bboxes, t_scores, t_class_ids = tracker(
+        frame,
+        d_bboxes,
+        previous_frame_bboxes,
+        cc_alignment_dict,
+    )
+    
+    # results = model.track(source=frame, classes=0, persist=True, verbose=False)
+    # if results is None: return None
+    
+    # # 人物リスト
+    # persons   = results[0]
+    # bboxes    = persons.boxes
+    # track_ids = bboxes.id.tolist()
+    
+    # トラッキングIDと連番の紐付け
+    for track_id in track_ids:
+        if track_id not in track_id_dict:
+            new_id = len(track_id_dict)
+            track_id_dict[track_id] = new_id
+    
+    # print(f'content(track_ids): {track_ids}, type: {type(track_ids[0])}') # int64
+    # print(f'content(t_bboxes): {t_bboxes}, type: {type(t_bboxes[0][0])}') # int
+    # print(f'content(t_scores): {t_scores}, type: {type(t_scores[0])}') # float32
+    # print(f'content(t_class_ids): {t_class_ids}, type: {type(t_class_ids[0])}') # float64
+    # print(f'content(d_scores): {d_scores}, type: {type(d_scores)}')
+    # print(f'content(track_id_dict): {track_id_dict}, type(key): {type(track_id_dict.keys())}, type(value): {type(track_id_dict.values())}')
+    # print(f'content(cc_alignment_dict): {cc_alignment_dict}, type: {type(cc_alignment_dict)}')
+    
+    ccDetailList = request.form.get('ccDetailList')
+    if ccDetailList is not None:
+        ccDetailList = json.loads(ccDetailList)
+        # cc_alignment_dict = cc_alignment(
+        #     t_bboxes,
+        #     track_ids,
+        #     track_id_dict,
+        #     cc_alignment_dict,
+        #     ccDetailList,
+        # )
+        # セグメンテーション用
+        cc_alignment_dict = cc_alignment(
+            persons.masks.xy,
+            track_ids,
+            track_id_dict,
+            cc_alignment_dict,
+            ccDetailList,
+        )
+    
+    # JSONで送れるようパース
+    track_ids     = [int(x) for x in track_ids]
+    t_scores      = [float(x) for x in t_scores]
+    t_class_ids   = [float(x) for x in t_class_ids]
+    
+    # print("d_scores",d_scores)
+    # print("d_scores",type(d_scores))
+    d_scores      = [float(x) for x in d_scores]
+    
+    track_id_dict = {int(key): value for key, value in track_id_dict.items()}
+    
+    return jsonify({
+        'track_ids'        : track_ids,
+        't_bboxes'         : t_bboxes,
+        't_scores'         : t_scores,
+        't_class_ids'      : t_class_ids,
+        'd_scores'         : d_scores,
+        'track_id_dict'    : track_id_dict,
+        'cc_alignment_dict': cc_alignment_dict
+    })
+
+if __name__ == '__main__':
+    detector, tracker = load_model(get_args())
+    #クロスカメラ特徴マッチング用画像パス
+    # globals.global_filepath = make_dir()
+    #main.pyを別ターミナルで起動
+    # sub_terminal()
+    app.run(port=50002)
